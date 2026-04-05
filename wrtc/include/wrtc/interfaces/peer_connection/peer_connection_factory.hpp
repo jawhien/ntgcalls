@@ -18,6 +18,8 @@ namespace wrtc {
 
         static PeerConnectionFactory* GetOrCreateDefault();
 
+        static void DestroyDefault();
+
         webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory();
 
         [[nodiscard]] webrtc::Thread* networkThread() const;

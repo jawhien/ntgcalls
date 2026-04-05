@@ -3,6 +3,8 @@
 //
 
 #pragma once
+#include <mutex>
+
 #include <ntgcalls/instances/call_interface.hpp>
 #include <ntgcalls/models/auth_params.hpp>
 #include <ntgcalls/signaling/signaling.hpp>
@@ -20,10 +22,14 @@ namespace ntgcalls {
         std::atomic_bool isMakingOffer = false, makingNegotation = false, handshakeCompleted = false;
         std::shared_ptr<signaling::SignalingInterface> signaling;
         wrtc::synchronized_callback<bytes::binary> onEmitData;
+        mutable std::mutex signalingMutex;
+        std::vector<bytes::binary> pendingSignalingData;
         std::vector<wrtc::IceCandidate> pendingIceCandidates;
         signaling::Signaling::Version protocolVersion = signaling::Signaling::Version::Unknown;
 
         void processSignalingData(const bytes::binary& buffer);
+
+        void flushPendingSignalingData();
 
         void applyPendingIceCandidates();
 
@@ -52,7 +58,7 @@ namespace ntgcalls {
 
         void onSignalingData(const std::function<void(const bytes::binary&)>& callback);
 
-        void sendSignalingData(const bytes::binary& buffer) const;
+        void sendSignalingData(const bytes::binary& buffer);
     };
 
 } // ntgcalls

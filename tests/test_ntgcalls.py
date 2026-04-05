@@ -8,6 +8,11 @@ class TestNTgCalls(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "pong")
         self.assertIsNotNone(result)
 
+    async def test_shutdown_is_idempotent(self):
+        session = NTgCalls()
+        session.shutdown()
+        session.shutdown()
+
 
 if __name__ == "__main__":
     unittest.main()

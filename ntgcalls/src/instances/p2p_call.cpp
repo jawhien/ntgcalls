@@ -13,15 +13,20 @@
 #include <ntgcalls/signaling/messages/negotiate_channels_message.hpp>
 #include <wrtc/interfaces/native_connection.hpp>
 #include <wrtc/utils/encryption.hpp>
+#include <exception>
 
 namespace ntgcalls {
-
     void P2PCall::stop() {
         onEmitData = nullptr;
         CallInterface::stop();
-        if (signaling) {
-            signaling->close();
-            signaling = nullptr;
+        std::shared_ptr<signaling::SignalingInterface> activeSignaling;
+        {
+            std::lock_guard lock(signalingMutex);
+            pendingSignalingData.clear();
+            activeSignaling = std::move(signaling);
+        }
+        if (activeSignaling) {
+            activeSignaling->close();
         }
     }
 
@@ -196,9 +201,17 @@ namespace ntgcalls {
             strong->processSignalingData(data);
         });
         streamManager->addTrack(StreamManager::Mode::Capture, StreamManager::Device::Microphone, connection.get());
-        streamManager->addTrack(StreamManager::Mode::Capture, StreamManager::Device::Camera, connection.get());
+        if (streamManager->hasDevice(StreamManager::Mode::Capture, StreamManager::Device::Camera)) {
+            streamManager->addTrack(StreamManager::Mode::Capture, StreamManager::Device::Camera, connection.get());
+        } else {
+            RTC_LOG(LS_VERBOSE) << "Skipping unconfigured capture camera track";
+        }
         streamManager->addTrack(StreamManager::Mode::Playback, StreamManager::Device::Microphone, connection.get());
-        streamManager->addTrack(StreamManager::Mode::Playback, StreamManager::Device::Camera, connection.get());
+        if (streamManager->hasDevice(StreamManager::Mode::Playback, StreamManager::Device::Camera)) {
+            streamManager->addTrack(StreamManager::Mode::Playback, StreamManager::Device::Camera, connection.get());
+        } else {
+            RTC_LOG(LS_VERBOSE) << "Skipping unconfigured playback camera track";
+        }
         streamManager->onUpgrade([weak] (const MediaState mediaState) {
             const auto strong = std::static_pointer_cast<P2PCall>(weak.lock());
             if (!strong) {
@@ -213,6 +226,7 @@ namespace ntgcalls {
             }
         }
         setConnectionObserver(connection);
+        flushPendingSignalingData();
     }
 
     void P2PCall::processSignalingData(const bytes::binary& buffer) {
@@ -306,8 +320,12 @@ namespace ntgcalls {
             default:
                 break;
             }
-        } catch (InvalidParams& e) {
+        } catch (const InvalidParams& e) {
             RTC_LOG(LS_ERROR) << "Invalid params: " << e.what();
+        } catch (const std::exception& e) {
+            RTC_LOG(LS_ERROR) << "Unhandled signaling processing error: " << e.what();
+        } catch (...) {
+            RTC_LOG(LS_ERROR) << "Unhandled signaling processing error";
         }
     }
 
@@ -319,6 +337,22 @@ namespace ntgcalls {
             connection->addIceCandidate(candidate);
         }
         pendingIceCandidates.clear();
+    }
+
+    void P2PCall::flushPendingSignalingData() {
+        std::vector<bytes::binary> packets;
+        std::shared_ptr<signaling::SignalingInterface> activeSignaling;
+        {
+            std::lock_guard lock(signalingMutex);
+            if (!signaling || pendingSignalingData.empty()) {
+                return;
+            }
+            packets.swap(pendingSignalingData);
+            activeSignaling = signaling;
+        }
+        for (const auto& packet : packets) {
+            activeSignaling->receive(packet);
+        }
     }
 
     void P2PCall::sendMediaState(const MediaState mediaState) const {
@@ -408,11 +442,18 @@ namespace ntgcalls {
         onEmitData = callback;
     }
 
-    void P2PCall::sendSignalingData(const bytes::binary& buffer) const {
-        if (!signaling) {
-            throw ConnectionError("Connection not initialized");
+    void P2PCall::sendSignalingData(const bytes::binary& buffer) {
+        std::shared_ptr<signaling::SignalingInterface> activeSignaling;
+        {
+            std::lock_guard lock(signalingMutex);
+            activeSignaling = signaling;
+            if (!activeSignaling) {
+                pendingSignalingData.push_back(buffer);
+                RTC_LOG(LS_VERBOSE) << "Buffering incoming signaling packet";
+                return;
+            }
         }
-        signaling->receive(buffer);
+        activeSignaling->receive(buffer);
     }
 
     CallInterface::Type P2PCall::type() const {

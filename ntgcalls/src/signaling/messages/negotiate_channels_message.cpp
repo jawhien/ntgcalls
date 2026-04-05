@@ -141,11 +141,31 @@ namespace signaling {
             }
         }
         if (payloadType.contains("parameters")) {
-            for (const auto &parameter : payloadType["parameters"].items()) {
-                if (!parameter.value().is_string()) {
-                    throw ntgcalls::InvalidParams("Signaling: parameters items must be strings");
+            const auto& parameters = payloadType["parameters"];
+            if (parameters.is_object()) {
+                if (parameters.contains("")) {
+                    if (!parameters[""].is_string()) {
+                        throw ntgcalls::InvalidParams("Signaling: parameters items must be strings");
+                    }
+                    result.parameters.emplace_back("", parameters[""]);
                 }
-                result.parameters.emplace_back(parameter.key(), parameter.value());
+                for (const auto &parameter : parameters.items()) {
+                    std::string key;
+                    try {
+                        key = parameter.key();
+                    } catch (const json::exception&) {
+                        continue;
+                    }
+                    if (key.empty()) {
+                        continue;
+                    }
+                    if (!parameter.value().is_string()) {
+                        throw ntgcalls::InvalidParams("Signaling: parameters items must be strings");
+                    }
+                    result.parameters.emplace_back(std::move(key), parameter.value());
+                }
+            } else {
+                throw ntgcalls::InvalidParams("Signaling: parameters must be an object");
             }
         }
         return result;

@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import struct
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -69,6 +70,17 @@ def release_kind():
     return 'RelWithDebInfo' if sys.platform.startswith('linux') else 'Release'
 
 
+def target_arch():
+    if sys.platform.startswith('win'):
+        return 'x86_64' if struct.calcsize('P') == 8 else 'x86'
+    machine = platform.machine().lower()
+    if machine in ('amd64', 'x86_64'):
+        return 'x86_64'
+    if machine in ('arm64', 'aarch64'):
+        return 'arm64'
+    return machine
+
+
 class CMakeBuild(build_ext):
     def build_extension(self, ext: CMakeExtension) -> None:
         ext_fullpath = Path.cwd() / self.get_ext_fullpath(ext.name)
@@ -79,6 +91,7 @@ class CMakeBuild(build_ext):
             f'-DPython_EXECUTABLE={sys.executable}',
             f'-DCMAKE_BUILD_TYPE={cfg}',
             f'-DIS_PYTHON=ON',
+            f'-DNTG_TARGET_ARCH={target_arch()}',
             f'-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_{cfg.upper()}={extdir}',
             f'-DCMAKE_TOOLCHAIN_FILE={Path(Path.cwd(), "cmake", "Toolchain.cmake")}',
         ]
@@ -129,6 +142,7 @@ class SharedCommand(Command):
             f'-DSTATIC_BUILD={"ON" if self.static else "OFF"}',
             f'-DIS_PYTHON=OFF',
             f'-DPython_EXECUTABLE={sys.executable}',
+            f'-DNTG_TARGET_ARCH={target_arch()}',
             f'-DCMAKE_TOOLCHAIN_FILE={Path(Path.cwd(), "cmake", "Toolchain.cmake")}',
         ]
         build_args = [

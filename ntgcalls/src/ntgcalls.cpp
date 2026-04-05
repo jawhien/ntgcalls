@@ -9,18 +9,34 @@
 #include <ntgcalls/instances/p2p_call.hpp>
 #include <ntgcalls/models/dh_config.hpp>
 #include <ntgcalls/utils/g_lib_loop_manager.hpp>
+#include <wrtc/interfaces/peer_connection/peer_connection_factory.hpp>
 #include <wrtc/video_factory/video_factory_config.hpp>
 
 namespace ntgcalls {
+    std::atomic_uint32_t NTgCalls::liveInstances{0};
+
     NTgCalls::NTgCalls() {
         updateThread = webrtc::Thread::Create();
         updateThread->Start();
         hardwareInfo = std::make_unique<HardwareInfo>();
         INIT_ASYNC
         LogSink::GetOrCreate();
+        liveInstances.fetch_add(1, std::memory_order_relaxed);
     }
 
     NTgCalls::~NTgCalls() {
+        shutdown();
+    }
+
+    void NTgCalls::shutdown() {
+        {
+            std::lock_guard shutdownLock(shutdownMutex);
+            if (shutdownComplete) {
+                return;
+            }
+            shutdownComplete = true;
+        }
+
         DESTROY_ASYNC
 #ifdef PYTHON_ENABLED
         py::gil_scoped_release release;
@@ -31,6 +47,7 @@ namespace ntgcalls {
             connection->stop();
         }
         connections.clear();
+        pendingP2PSignaling.clear();
         onEof = nullptr;
         mediaStateCallback = nullptr;
         connectionChangeCallback = nullptr;
@@ -41,9 +58,16 @@ namespace ntgcalls {
         framesCallback = nullptr;
         hardwareInfo = nullptr;
         lock.unlock();
-        updateThread->Stop();
-        updateThread = nullptr;
+        if (updateThread) {
+            updateThread->Stop();
+            updateThread = nullptr;
+        }
         RTC_LOG(LS_VERBOSE) << "NTgCalls destroyed";
+
+        if (liveInstances.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            wrtc::PeerConnectionFactory::DestroyDefault();
+        }
+
         LogSink::UnRef();
     }
 
@@ -121,13 +145,40 @@ namespace ntgcalls {
         }
     }
 
+    void NTgCalls::flushPendingP2PSignaling(const int64_t chatId, const std::shared_ptr<P2PCall>& call) {
+        if (!call) {
+            return;
+        }
+
+        std::vector<bytes::binary> packets;
+        {
+            std::lock_guard lock(mutex);
+            const auto pending = pendingP2PSignaling.find(chatId);
+            if (pending == pendingP2PSignaling.end() || pending->second.empty()) {
+                return;
+            }
+            packets.swap(pending->second);
+            pendingP2PSignaling.erase(pending);
+        }
+
+        RTC_LOG(LS_VERBOSE) << "Flushing " << packets.size() << " pending pre-init signaling packet(s) for call " << chatId;
+        for (const auto& packet : packets) {
+            call->sendSignalingData(packet);
+        }
+    }
+
     ASYNC_RETURN(void) NTgCalls::createP2PCall(const int64_t userId) {
         SMART_ASYNC(this, userId)
         CHECK_AND_THROW_IF_EXISTS(userId)
-        std::lock_guard lock(mutex);
-        connections[userId] = std::make_shared<P2PCall>(updateThread.get());
-        setupListeners(userId);
-        SafeCall<P2PCall>(connections[userId].get())->init();
+        std::shared_ptr<P2PCall> call;
+        {
+            std::lock_guard lock(mutex);
+            call = std::make_shared<P2PCall>(updateThread.get());
+            connections[userId] = call;
+            setupListeners(userId);
+            call->init();
+        }
+        flushPendingP2PSignaling(userId, call);
         END_ASYNC
     }
 
@@ -224,7 +275,13 @@ namespace ntgcalls {
 
     ASYNC_RETURN(void) NTgCalls::stop(const int64_t chatId) {
         SMART_ASYNC(this, chatId)
-        remove(chatId);
+        {
+            std::lock_guard lock(mutex);
+            pendingP2PSignaling.erase(chatId);
+        }
+        if (exists(chatId)) {
+            remove(chatId);
+        }
         END_ASYNC
     }
 
@@ -288,7 +345,18 @@ namespace ntgcalls {
 
     ASYNC_RETURN(void) NTgCalls::sendSignalingData(const int64_t chatId, const BYTES(bytes::binary) &msgKey) {
         SMART_ASYNC(this, chatId, msgKey = CPP_BYTES(msgKey, bytes::binary))
-        SafeCall<P2PCall>(safeConnection(chatId))->sendSignalingData(msgKey);
+        std::shared_ptr<CallInterface> call;
+        {
+            std::lock_guard lock(mutex);
+            const auto connection = connections.find(chatId);
+            if (connection == connections.end()) {
+                pendingP2PSignaling[chatId].push_back(msgKey);
+                RTC_LOG(LS_VERBOSE) << "Buffering pre-init signaling packet for call " << chatId;
+                return;
+            }
+            call = connection->second;
+        }
+        SafeCall<P2PCall>(call.get())->sendSignalingData(msgKey);
         END_ASYNC
     }
 
@@ -340,6 +408,7 @@ namespace ntgcalls {
         RTC_LOG(LS_VERBOSE) << "Removing call " << chatId << ", Acquiring lock";
         std::lock_guard lock(mutex);
         RTC_LOG(LS_VERBOSE) << "Lock acquired, removing call " << chatId;
+        pendingP2PSignaling.erase(chatId);
         if (!exists(chatId)) {
             RTC_LOG(LS_ERROR) << "Call " << chatId << " not found";
             THROW_CONNECTION_NOT_FOUND(chatId)

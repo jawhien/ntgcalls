@@ -155,4 +155,17 @@ namespace wrtc {
         }
         return _default.get();
     }
+
+    void PeerConnectionFactory::DestroyDefault() {
+        std::lock_guard lock(_mutex);
+        if (!_default) {
+            return;
+        }
+
+        _default.reset();
+#ifndef IS_ANDROID
+        webrtc::CleanupSSL();
+#endif
+        initialized = false;
+    }
 } // wrtc

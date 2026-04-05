@@ -4,6 +4,7 @@
 #pragma once
 
 
+#include <atomic>
 #include <cstdint>
 
 #include <ntgcalls/instances/call_interface.hpp>
@@ -30,8 +31,11 @@ throw ConnectionNotFound("Connection with chat id \"" + std::to_string(chatId) +
 
 namespace ntgcalls {
 
+    class P2PCall;
+
     class NTgCalls {
         std::unordered_map<int64_t, std::shared_ptr<CallInterface>> connections;
+        std::unordered_map<int64_t, std::vector<bytes::binary>> pendingP2PSignaling;
         wrtc::synchronized_callback<int64_t, StreamManager::Type, StreamManager::Device> onEof;
         wrtc::synchronized_callback<int64_t, MediaState> mediaStateCallback;
         wrtc::synchronized_callback<int64_t, NetworkInfo> connectionChangeCallback;
@@ -43,6 +47,9 @@ namespace ntgcalls {
         std::unique_ptr<webrtc::Thread> updateThread;
         std::unique_ptr<HardwareInfo> hardwareInfo;
         std::mutex mutex;
+        std::mutex shutdownMutex;
+        bool shutdownComplete = false;
+        static std::atomic_uint32_t liveInstances;
         ASYNC_ARGS
 
         bool exists(int64_t chatId) const;
@@ -54,12 +61,16 @@ namespace ntgcalls {
         template<typename DestCallType, typename BaseCallType>
         static DestCallType* SafeCall(BaseCallType* call);
 
+        void flushPendingP2PSignaling(int64_t chatId, const std::shared_ptr<P2PCall>& call);
+
         void remove(int64_t chatId);
 
     public:
         explicit NTgCalls();
 
         ~NTgCalls();
+
+        void shutdown();
 
         ASYNC_RETURN(void) createP2PCall(int64_t userId);
 

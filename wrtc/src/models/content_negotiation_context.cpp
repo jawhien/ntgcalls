@@ -12,6 +12,19 @@
 #include <wrtc/exceptions.hpp>
 
 namespace wrtc {
+    namespace {
+        std::unique_ptr<ContentNegotiationContext::NegotiationContents> buildFallbackIncomingAnswer(
+            const ContentNegotiationContext::NegotiationContents& offer,
+            std::vector<MediaContent>& incomingChannels
+        ) {
+            auto mappedAnswer = std::make_unique<ContentNegotiationContext::NegotiationContents>();
+            mappedAnswer->exchangeId = offer.exchangeId;
+            incomingChannels = offer.contents;
+            mappedAnswer->contents = offer.contents;
+            return mappedAnswer;
+        }
+    } // namespace
+
     ContentNegotiationContext::ContentNegotiationContext(
         const webrtc::Environment& env,
         const bool isOutgoing,
@@ -156,16 +169,23 @@ namespace wrtc {
         auto mappedOffer = std::make_unique<NegotiationContents>();
         mappedOffer->exchangeId = pendingOutgoingOffer->exchangeId;
         for (const auto &content : offer->contents()) {
-            auto mappedContent = convertContentInfoToSignalingContent(content);
-            if (content.media_description()->direction() == webrtc::RtpTransceiverDirection::kSendOnly) {
-                mappedOffer->contents.push_back(std::move(mappedContent));
-                for (auto &channel : outgoingChannelDescriptions) {
-                    if (channel.description.mid == content.mid()) {
-                        channel.ssrc = mappedContent.ssrc;
-                        channel.ssrcGroups = mappedContent.ssrcGroups;
-                    }
-                }
+            if (content.media_description()->direction() != webrtc::RtpTransceiverDirection::kSendOnly) {
+                continue;
             }
+            const auto outgoingChannel = std::ranges::find_if(
+                outgoingChannelDescriptions,
+                [&](const auto &channel) {
+                    return channel.description.mid == content.mid();
+                }
+            );
+            if (outgoingChannel == outgoingChannelDescriptions.end()) {
+                RTC_LOG(LS_WARNING) << "Skipping unexpected sendonly content in offer, mid: " << content.mid();
+                continue;
+            }
+            auto mappedContent = convertContentInfoToSignalingContent(content);
+            mappedOffer->contents.push_back(std::move(mappedContent));
+            outgoingChannel->ssrc = mappedContent.ssrc;
+            outgoingChannel->ssrcGroups = mappedContent.ssrcGroups;
         }
         return mappedOffer;
     }
@@ -310,6 +330,13 @@ namespace wrtc {
             case MediaContent::Type::Audio: {
                 auto audioDescription = std::make_unique<webrtc::AudioContentDescription>();
                 for (const auto &[id, name, clockrate, channels, feedbackTypes, parameters] : content.payloadTypes) {
+                    const auto hasAnonymousParameter = std::ranges::any_of(parameters, [](const auto& parameter) {
+                        return parameter.first.empty();
+                    });
+                    if (hasAnonymousParameter) {
+                        RTC_LOG(LS_WARNING) << "Skipping codec with anonymous parameter during signaling export: " << name;
+                        continue;
+                    }
                     auto mappedCodec = webrtc::CreateAudioCodec(
                         static_cast<int>(id),
                         name,
@@ -330,6 +357,13 @@ namespace wrtc {
             case MediaContent::Type::Video: {
                 auto videoDescription = std::make_unique<webrtc::VideoContentDescription>();
                 for (const auto &[id, name, clockrate, channels, feedbackTypes, parameters] : content.payloadTypes) {
+                    const auto hasAnonymousParameter = std::ranges::any_of(parameters, [](const auto& parameter) {
+                        return parameter.first.empty();
+                    });
+                    if (hasAnonymousParameter) {
+                        RTC_LOG(LS_WARNING) << "Skipping video codec with anonymous parameter during signaling export: " << name;
+                        continue;
+                    }
                     webrtc::SdpVideoFormat videoFormat(name);
                     for (const auto &parameter : parameters) {
                         videoFormat.parameters.insert(parameter);
@@ -382,6 +416,13 @@ namespace wrtc {
             case webrtc::MediaType::AUDIO:
                 mappedContent.type = MediaContent::Type::Audio;
                 for (const auto &codec : content.media_description()->as_audio()->codecs()) {
+                    const auto hasAnonymousParameter = std::ranges::any_of(codec.params, [](const auto& parameter) {
+                        return parameter.first.empty();
+                    });
+                    if (hasAnonymousParameter) {
+                        RTC_LOG(LS_WARNING) << "Skipping signaling export for audio codec with anonymous parameter: " << codec.name;
+                        continue;
+                    }
                     PayloadType mappedPayloadType;
                     mappedPayloadType.id = codec.id;
                     mappedPayloadType.name = codec.name;
@@ -405,6 +446,13 @@ namespace wrtc {
             case webrtc::MediaType::VIDEO:
                 mappedContent.type = MediaContent::Type::Video;
                 for (const auto &codec : content.media_description()->as_video()->codecs()) {
+                    const auto hasAnonymousParameter = std::ranges::any_of(codec.params, [](const auto& parameter) {
+                        return parameter.first.empty();
+                    });
+                    if (hasAnonymousParameter) {
+                        RTC_LOG(LS_WARNING) << "Skipping signaling export for video codec with anonymous parameter: " << codec.name;
+                        continue;
+                    }
                     PayloadType mappedPayloadType;
                     mappedPayloadType.id = codec.id;
                     mappedPayloadType.name = codec.name;
@@ -605,7 +653,9 @@ namespace wrtc {
 
         auto answerOrError = sessionDescriptionFactory->CreateAnswerOrError(mappedOffer.get(), answerOptions, currentSessionDescription.get());
         if (!answerOrError.ok()) {
-            return nullptr;
+            RTC_LOG(LS_ERROR) << "Failed to create answer: " << answerOrError.error().message();
+            RTC_LOG(LS_WARNING) << "Falling back to mirrored incoming answer for remote offer";
+            return buildFallbackIncomingAnswer(*offer, incomingChannels);
         }
         auto answer = answerOrError.MoveValue();
 
@@ -629,6 +679,10 @@ namespace wrtc {
                 tempIncomingChannels.push_back(mappedContent);
                 mappedAnswer->contents.push_back(std::move(mappedContent));
             }
+        }
+        if (mappedAnswer->contents.empty() && !offer->contents.empty()) {
+            RTC_LOG(LS_WARNING) << "Generated answer had no recvonly contents, falling back to mirrored incoming answer";
+            return buildFallbackIncomingAnswer(*offer, incomingChannels);
         }
         incomingChannels = tempIncomingChannels;
         return mappedAnswer;
