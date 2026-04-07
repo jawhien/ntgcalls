@@ -1,6 +1,9 @@
 set(OPENH264_DIR ${DEPS_DIR}/openh264)
 set(OPENH264_SRC ${OPENH264_DIR}/src)
 set(OPENH264_GIT https://github.com/pytgcalls/openh264)
+if (WINDOWS_x86)
+    set(OPENH264_GIT https://github.com/Peter876/openh264)
+endif ()
 set(OPENH264_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}openh264${CMAKE_STATIC_LIBRARY_SUFFIX})
 
 if(NOT TARGET cisco::OpenH264)

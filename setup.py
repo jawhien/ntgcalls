@@ -17,6 +17,25 @@ CMAKE_VERSION = '4.1.2'
 TOOLS_PATH = Path(Path.cwd(), 'build_tools')
 
 
+def subprocess_env():
+    env = dict(os.environ)
+    if sys.platform.startswith('win'):
+        path_value = env.pop('PATH', None)
+        existing_path = env.pop('Path', None)
+        if path_value is None:
+            path_value = existing_path
+        elif existing_path:
+            path_value = existing_path
+        if path_value is not None:
+            env['Path'] = path_value
+    return env
+
+
+def run_command(args, **kwargs):
+    kwargs.setdefault('env', subprocess_env())
+    return subprocess.run(args, **kwargs)
+
+
 def cmake_path():
     return Path(TOOLS_PATH, f'cmake_{CMAKE_VERSION.replace(".", "_")}')
 
@@ -41,7 +60,7 @@ def install_cmake(cmake_version: str):
         with open(download_sh, 'wb') as file:
             file.write(response.read())
 
-    subprocess.run(
+    run_command(
         ['bash', download_sh, '--skip-license', f'--prefix={fixed_name}'],
         check=True,
     )
@@ -57,7 +76,7 @@ with open(os.path.join(base_path, 'CMakeLists.txt'), 'r', encoding='utf-8') as f
         '-P',
         'cmake/VersionUtil.cmake',
     ]
-    version = subprocess.run(cmake_command, capture_output=True, text=True).stderr.strip()
+    version = run_command(cmake_command, capture_output=True, text=True).stderr.strip()
     version = re.sub(r'\x1b\[[0-9;]*m', '', version)
 
 class CMakeExtension(Extension):
@@ -79,6 +98,12 @@ def target_arch():
     if machine in ('arm64', 'aarch64'):
         return 'arm64'
     return machine
+
+
+def cmake_generator_args():
+    if sys.platform.startswith('win') and target_arch() == 'x86':
+        return ['-A', 'Win32']
+    return []
 
 
 class CMakeBuild(build_ext):
@@ -104,13 +129,13 @@ class CMakeBuild(build_ext):
         build_temp = Path(self.build_temp) / ext.name
         if not build_temp.exists():
             build_temp.mkdir(parents=True)
-        subprocess.run(
-            [cmake_bin(), ext.sourcedir, *cmake_args], cwd=build_temp, check=True
+        run_command(
+            [cmake_bin(), *cmake_generator_args(), ext.sourcedir, *cmake_args], cwd=build_temp, check=True
         )
-        subprocess.run(
+        run_command(
             [cmake_bin(), '--build', '.', '--target', 'clean_objects'], cwd=build_temp, check=True
         )
-        subprocess.run(
+        run_command(
             [cmake_bin(), '--build', '.', *build_args], cwd=build_temp, check=True
         )
 
@@ -171,13 +196,13 @@ class SharedCommand(Command):
                     f'-DANDROID_ABI=OFF',
                 ]
 
-            subprocess.run(
-                [cmake_bin(), source_dir, *new_cmake_args], cwd=build_temp, check=True
+            run_command(
+                [cmake_bin(), *cmake_generator_args(), source_dir, *new_cmake_args], cwd=build_temp, check=True
             )
-            subprocess.run(
+            run_command(
                 [cmake_bin(), '--build', '.', '--target', 'clean_objects'], cwd=build_temp, check=True
             )
-            subprocess.run(
+            run_command(
                 [cmake_bin(), '--build', '.', *build_args], cwd=build_temp, check=True
             )
         if self.no_preserve_cache:

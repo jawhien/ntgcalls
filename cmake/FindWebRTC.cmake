@@ -1,7 +1,12 @@
 GetProperty("version.webrtc" WEBRTC_REVISION)
 string(REGEX MATCH "[0-9]+\\.([0-9]+)" WEBRTC_BRANCH "${WEBRTC_REVISION}")
 set(WEBRTC_BRANCH branch-heads/${CMAKE_MATCH_1})
+set(WEBRTC_RELEASE_TAG m${WEBRTC_REVISION})
 set(WEBRTC_GIT https://github.com/pytgcalls/webrtc-build)
+if (WINDOWS_x86)
+    set(WEBRTC_GIT https://github.com/Peter876/webrtc-build)
+    set(WEBRTC_RELEASE_TAG m20260330)
+endif ()
 set(WEBRTC_DIR ${DEPS_DIR}/libwebrtc)
 set(WEBRTC_SRC ${WEBRTC_DIR}/src)
 set(WEBRTC_INCLUDE ${WEBRTC_SRC}/include)
@@ -57,7 +62,7 @@ if(NOT TARGET WebRTC::webrtc)
     set(FILE_NAME ${FILE_NAME}${ARCHIVE_FORMAT})
 
     DownloadProject(
-        URL ${WEBRTC_GIT}/releases/download/m${WEBRTC_REVISION}/${FILE_NAME}
+        URL ${WEBRTC_GIT}/releases/download/${WEBRTC_RELEASE_TAG}/${FILE_NAME}
         DOWNLOAD_DIR ${WEBRTC_DIR}/download
         SOURCE_DIR ${WEBRTC_SRC}
     )
