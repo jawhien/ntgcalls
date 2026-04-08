@@ -53,25 +53,25 @@ namespace ntgcalls {
 
         bool handleDataPlayback();
 
-        HRESULT QueryInterface(const IID& riid, void** ppvObject) override;
+        HRESULT STDMETHODCALLTYPE QueryInterface(const IID& riid, void** ppvObject) override;
 
-        ULONG AddRef() override;
+        ULONG STDMETHODCALLTYPE AddRef() override;
 
-        ULONG Release() override;
+        ULONG STDMETHODCALLTYPE Release() override;
 
-        HRESULT OnDisplayNameChanged(LPCWSTR NewDisplayName, LPCGUID EventContext) override;
+        HRESULT STDMETHODCALLTYPE OnDisplayNameChanged(LPCWSTR NewDisplayName, LPCGUID EventContext) override;
 
-        HRESULT OnIconPathChanged(LPCWSTR NewIconPath, LPCGUID EventContext) override;
+        HRESULT STDMETHODCALLTYPE OnIconPathChanged(LPCWSTR NewIconPath, LPCGUID EventContext) override;
 
-        HRESULT OnSimpleVolumeChanged(float NewVolume, BOOL NewMute, LPCGUID EventContext) override;
+        HRESULT STDMETHODCALLTYPE OnSimpleVolumeChanged(float NewVolume, BOOL NewMute, LPCGUID EventContext) override;
 
-        HRESULT OnChannelVolumeChanged(DWORD ChannelCount, float NewChannelVolumeArray[], DWORD ChangedChannel, LPCGUID EventContext) override;
+        HRESULT STDMETHODCALLTYPE OnChannelVolumeChanged(DWORD ChannelCount, float NewChannelVolumeArray[], DWORD ChangedChannel, LPCGUID EventContext) override;
 
-        HRESULT OnGroupingParamChanged(LPCGUID NewGroupingParam, LPCGUID EventContext) override;
+        HRESULT STDMETHODCALLTYPE OnGroupingParamChanged(LPCGUID NewGroupingParam, LPCGUID EventContext) override;
 
-        HRESULT OnStateChanged(AudioSessionState NewState) override;
+        HRESULT STDMETHODCALLTYPE OnStateChanged(AudioSessionState NewState) override;
 
-        HRESULT OnSessionDisconnected(AudioSessionDisconnectReason DisconnectReason) override;
+        HRESULT STDMETHODCALLTYPE OnSessionDisconnected(AudioSessionDisconnectReason DisconnectReason) override;
 
     public:
         explicit WinCoreDeviceModule(const AudioDescription* desc, bool isCapture, BaseSink *sink);

@@ -219,7 +219,7 @@ namespace ntgcalls {
         }
     }
 
-    HRESULT WinCoreDeviceModule::QueryInterface(const IID& riid, void** ppvObject) {
+    HRESULT STDMETHODCALLTYPE WinCoreDeviceModule::QueryInterface(const IID& riid, void** ppvObject) {
         if (ppvObject == nullptr) {
             return E_POINTER;
         }
@@ -231,39 +231,39 @@ namespace ntgcalls {
         return E_NOINTERFACE;
     }
 
-    ULONG WinCoreDeviceModule::AddRef() {
+    ULONG STDMETHODCALLTYPE WinCoreDeviceModule::AddRef() {
         return InterlockedIncrement(&refCount);
     }
 
-    ULONG WinCoreDeviceModule::Release() {
+    ULONG STDMETHODCALLTYPE WinCoreDeviceModule::Release() {
         return InterlockedDecrement(&refCount);
     }
 
-    HRESULT WinCoreDeviceModule::OnDisplayNameChanged(LPCWSTR NewDisplayName, LPCGUID EventContext) {
+    HRESULT STDMETHODCALLTYPE WinCoreDeviceModule::OnDisplayNameChanged(LPCWSTR NewDisplayName, LPCGUID EventContext) {
         return S_OK;
     }
 
-    HRESULT WinCoreDeviceModule::OnIconPathChanged(LPCWSTR NewIconPath, LPCGUID EventContext) {
+    HRESULT STDMETHODCALLTYPE WinCoreDeviceModule::OnIconPathChanged(LPCWSTR NewIconPath, LPCGUID EventContext) {
         return S_OK;
     }
 
-    HRESULT WinCoreDeviceModule::OnSimpleVolumeChanged(float NewVolume, BOOL NewMute, LPCGUID EventContext) {
+    HRESULT STDMETHODCALLTYPE WinCoreDeviceModule::OnSimpleVolumeChanged(float NewVolume, BOOL NewMute, LPCGUID EventContext) {
         return S_OK;
     }
 
-    HRESULT WinCoreDeviceModule::OnChannelVolumeChanged(DWORD ChannelCount, float NewChannelVolumeArray[], DWORD ChangedChannel, LPCGUID EventContext) {
+    HRESULT STDMETHODCALLTYPE WinCoreDeviceModule::OnChannelVolumeChanged(DWORD ChannelCount, float NewChannelVolumeArray[], DWORD ChangedChannel, LPCGUID EventContext) {
         return S_OK;
     }
 
-    HRESULT WinCoreDeviceModule::OnGroupingParamChanged(LPCGUID NewGroupingParam, LPCGUID EventContext) {
+    HRESULT STDMETHODCALLTYPE WinCoreDeviceModule::OnGroupingParamChanged(LPCGUID NewGroupingParam, LPCGUID EventContext) {
         return S_OK;
     }
 
-    HRESULT WinCoreDeviceModule::OnStateChanged(AudioSessionState NewState) {
+    HRESULT STDMETHODCALLTYPE WinCoreDeviceModule::OnStateChanged(AudioSessionState NewState) {
         return S_OK;
     }
 
-    HRESULT WinCoreDeviceModule::OnSessionDisconnected(const AudioSessionDisconnectReason DisconnectReason) {
+    HRESULT STDMETHODCALLTYPE WinCoreDeviceModule::OnSessionDisconnected(const AudioSessionDisconnectReason DisconnectReason) {
         if (!automaticRestart) {
             return S_OK;
         }
